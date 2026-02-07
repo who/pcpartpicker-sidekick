@@ -5,6 +5,116 @@ const DEFAULT_USER_AGENT =
 
 const DEFAULT_VIEWPORT = { width: 1920, height: 1080 };
 
+// --- PCPartPicker Selector Configuration ---
+
+interface LoginSelectors {
+  form: string;
+  usernameInput: string;
+  passwordInput: string;
+  submitButton: string;
+}
+
+interface CategorySearchSelectors {
+  content: string;
+  table: string;
+}
+
+interface FilterSelectors {
+  container: string;
+  priceSlider: string;
+  specificationList: string;
+  filterCheckbox: string;
+  filterCount: string;
+}
+
+interface ResultSelectors {
+  productRow: string;
+  productName: string;
+  productPrice: string;
+  productImage: string;
+  specCell: string;
+  specLabel: string;
+  selectCheckbox: string;
+}
+
+interface PaginationSelectors {
+  container: string;
+  lastPage: string;
+  pageLink: string;
+}
+
+interface SaveListSelectors {
+  addPartButton: string;
+  partListTable: string;
+  partListRow: string;
+  saveButton: string;
+  listNameInput: string;
+  totalPrice: string;
+}
+
+export interface Selectors {
+  login: LoginSelectors;
+  categorySearch: CategorySearchSelectors;
+  filters: FilterSelectors;
+  results: ResultSelectors;
+  pagination: PaginationSelectors;
+  saveList: SaveListSelectors;
+}
+
+// URL patterns:
+//   login:          /user/login/
+//   categorySearch: /products/<category>/ (e.g. /products/cpu/, /products/video-card/)
+//   filters:        sidebar on /products/<category>/ pages
+//   results:        table on /products/<category>/ pages
+//   pagination:     bottom of /products/<category>/ pages
+//   saveList:       /list/ and /user/saved/
+export const SELECTORS: Selectors = {
+  login: {
+    form: "form#login_form",
+    usernameInput: 'input[type="text"][name*="username"]',
+    passwordInput: 'input[type="password"]',
+    submitButton: "#form_submit",
+  },
+
+  categorySearch: {
+    content: "#category_content",
+    table: "table.productList--detailed",
+  },
+
+  filters: {
+    container: "#module-filters",
+    priceSlider: ".price-slider",
+    specificationList: ".specificationFilter",
+    filterCheckbox: "input.filter-checkbox",
+    filterCount: ".pp-filter-count",
+  },
+
+  results: {
+    productRow: ".tr__product",
+    productName: ".td__name .td__nameWrapper > p",
+    productPrice: ".td__price",
+    productImage: ".td__imageWrapper img",
+    specCell: "td.td__spec",
+    specLabel: ".specLabel",
+    selectCheckbox: "input.px",
+  },
+
+  pagination: {
+    container: ".pagination",
+    lastPage: ".pagination li:last-child",
+    pageLink: ".pagination a",
+  },
+
+  saveList: {
+    addPartButton: ".actionBox__button--add",
+    partListTable: ".partlist__table",
+    partListRow: ".partlist__row",
+    saveButton: ".button--save, .actionBox__button--save",
+    listNameInput: 'input[name="listname"], .partlist__name input',
+    totalPrice: ".partlist__total .td__price",
+  },
+};
+
 export class BrowserController {
   private static instance: BrowserController | null = null;
 
