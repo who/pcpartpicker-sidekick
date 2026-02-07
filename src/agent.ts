@@ -137,10 +137,11 @@ const TOOLS: Tool[] = [
           items: {
             type: "object",
             properties: {
-              url: { type: "string" },
-              category: { type: "string" },
+              name: { type: "string", description: "Part name" },
+              url: { type: "string", description: "PCPartPicker URL for the part" },
+              category: { type: "string", description: "Part category" },
             },
-            required: ["url", "category"],
+            required: ["name", "url", "category"],
           },
           description: "Parts to save (with PCPartPicker URLs)",
         },

@@ -129,6 +129,31 @@ export function createServer(): ServerInstance {
       });
     });
 
+    // Register save_list tool handler — saves approved build to PCPartPicker
+    agent.onTool("save_list", async (input) => {
+      const parts = input.parts as { name: string; url: string; category: string }[];
+      const listName = input.list_name as string;
+
+      console.log(
+        `save_list: saving ${parts.length} parts as "${listName}"`,
+      );
+
+      await browser.launch();
+
+      const result = await browser.saveList(parts, listName);
+
+      console.log(
+        `save_list: saved "${result.listName}" — ${result.partsAdded} added, ${result.partsFailed.length} failed — ${result.url}`,
+      );
+
+      return JSON.stringify({
+        url: result.url,
+        listName: result.listName,
+        partsAdded: result.partsAdded,
+        partsFailed: result.partsFailed,
+      });
+    });
+
     ws.on("message", (data) => {
       let parsed: WsMessageIn;
       try {
