@@ -1,7 +1,26 @@
 import { chromium, Browser, BrowserContext, Page } from "playwright";
+import { PartCategory, PartResult, SearchFilters } from "./types.js";
 import config from "./config.js";
 
-const PCPARTPICKER_LOGIN_URL = "https://pcpartpicker.com/user/login/";
+const PCPARTPICKER_BASE_URL = "https://pcpartpicker.com";
+const PCPARTPICKER_LOGIN_URL = `${PCPARTPICKER_BASE_URL}/user/login/`;
+
+const CATEGORY_SLUGS: Record<PartCategory, string> = {
+  [PartCategory.CPU]: "cpu",
+  [PartCategory.CPUCooler]: "cpu-cooler",
+  [PartCategory.Motherboard]: "motherboard",
+  [PartCategory.Memory]: "memory",
+  [PartCategory.Storage]: "internal-hard-drive",
+  [PartCategory.VideoCard]: "video-card",
+  [PartCategory.Case]: "case",
+  [PartCategory.PowerSupply]: "power-supply",
+  [PartCategory.OperatingSystem]: "os",
+  [PartCategory.CaseFans]: "case-fan",
+  [PartCategory.Monitor]: "monitor",
+  [PartCategory.Peripherals]: "keyboard",
+};
+
+const MIN_RESULTS = 10;
 
 export interface LoginResult {
   success: boolean;
@@ -232,6 +251,144 @@ export class BrowserController {
             : "Login failed: unknown error",
       };
     }
+  }
+
+  async searchCategory(
+    category: PartCategory,
+    filters: SearchFilters,
+  ): Promise<PartResult[]> {
+    const pg = this.page;
+    const slug = CATEGORY_SLUGS[category];
+    const url = this.buildCategoryUrl(slug, filters);
+
+    await pg.goto(url, { waitUntil: "domcontentloaded" });
+    await this.delay(1000, 2000);
+
+    const results: PartResult[] = [];
+    let hasNextPage = true;
+
+    while (hasNextPage && results.length < MIN_RESULTS) {
+      await pg
+        .waitForSelector(SELECTORS.results.productRow, { timeout: 10_000 })
+        .catch(() => null);
+
+      const pageResults = await this.scrapeResults(pg);
+      results.push(...pageResults);
+
+      if (results.length >= MIN_RESULTS) {
+        break;
+      }
+
+      hasNextPage = await this.goToNextPage(pg);
+      if (hasNextPage) {
+        await this.delay(1000, 3000);
+      }
+    }
+
+    return results;
+  }
+
+  private buildCategoryUrl(slug: string, filters: SearchFilters): string {
+    const url = new URL(`${PCPARTPICKER_BASE_URL}/products/${slug}/`);
+    const params: string[] = [];
+
+    if (filters.priceMin !== null) {
+      params.push(`N=${filters.priceMin}`);
+    }
+    if (filters.priceMax !== null) {
+      params.push(`X=${filters.priceMax}`);
+    }
+
+    if (params.length > 0) {
+      url.hash = params.join(",");
+    }
+
+    return url.toString();
+  }
+
+  private async scrapeResults(pg: Page): Promise<PartResult[]> {
+    const rows = await pg.$$(SELECTORS.results.productRow);
+    const results: PartResult[] = [];
+
+    for (const row of rows) {
+      const nameEl = await row.$(SELECTORS.results.productName);
+      const name = nameEl ? ((await nameEl.textContent()) ?? "").trim() : "";
+      if (!name) continue;
+
+      const priceEl = await row.$(SELECTORS.results.productPrice);
+      const priceText = priceEl
+        ? ((await priceEl.textContent()) ?? "").trim()
+        : "";
+      const price = parseFloat(priceText.replace(/[^0-9.]/g, "")) || 0;
+
+      const ratingText = await row
+        .$eval(".td__rating", (el) => el.textContent?.trim() ?? "")
+        .catch(() => "");
+      const ratingMatch = ratingText.match(/([\d.]+)/);
+      const rating = ratingMatch ? parseFloat(ratingMatch[1]) : null;
+
+      const specs: Record<string, string> = {};
+      const specCells = await row.$$(SELECTORS.results.specCell);
+      for (const cell of specCells) {
+        const label = await cell
+          .$(SELECTORS.results.specLabel)
+          .then(async (el) => (el ? ((await el.textContent()) ?? "").trim() : ""))
+          .catch(() => "");
+        const value = (await cell.textContent())?.trim() ?? "";
+        const cleanValue = label ? value.replace(label, "").trim() : value;
+        if (label && cleanValue) {
+          specs[label] = cleanValue;
+        } else if (cleanValue) {
+          specs[`spec_${Object.keys(specs).length}`] = cleanValue;
+        }
+      }
+
+      const linkEl = await row.$(".td__name a");
+      const href = linkEl ? await linkEl.getAttribute("href") : null;
+      const partUrl = href
+        ? href.startsWith("http")
+          ? href
+          : `${PCPARTPICKER_BASE_URL}${href}`
+        : "";
+
+      results.push({ name, price, rating, specs, url: partUrl });
+    }
+
+    return results;
+  }
+
+  private async goToNextPage(pg: Page): Promise<boolean> {
+    const nextLink = await pg.$(
+      `${SELECTORS.pagination.container} .pagination-next a`,
+    );
+    if (!nextLink) {
+      // Fallback: look for active page + 1
+      const activePageEl = await pg.$(
+        `${SELECTORS.pagination.container} .active`,
+      );
+      if (!activePageEl) return false;
+
+      const activeText = (await activePageEl.textContent())?.trim() ?? "";
+      const activePage = parseInt(activeText, 10);
+      if (isNaN(activePage)) return false;
+
+      const nextPageLink = await pg.$(
+        `${SELECTORS.pagination.container} a[href*="page=${activePage + 1}"]`,
+      );
+      if (!nextPageLink) return false;
+
+      await Promise.all([
+        pg.waitForNavigation({ timeout: 15_000 }),
+        nextPageLink.click(),
+      ]);
+      return true;
+    }
+
+    await Promise.all([
+      pg.waitForNavigation({ timeout: 15_000 }),
+      nextLink.click(),
+    ]);
+    return true;
   }
 
   async delay(min: number, max: number): Promise<void> {
