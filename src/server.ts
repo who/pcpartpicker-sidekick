@@ -3,7 +3,11 @@ import path from "node:path";
 import express from "express";
 import { WebSocketServer, WebSocket } from "ws";
 import { Agent } from "./agent.js";
+import { BrowserController } from "./browser.js";
 import type {
+  PartCategory,
+  PartResult,
+  SearchFilters,
   WsMessageIn,
   WsMessageOut,
   WsProposalPart,
@@ -20,6 +24,31 @@ function send(ws: WebSocket, msg: WsMessageOut): void {
   if (ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(msg));
   }
+}
+
+function formatResultsTable(results: PartResult[]): string {
+  if (results.length === 0) {
+    return "No results found matching the search criteria.";
+  }
+
+  const lines: string[] = [
+    `Found ${results.length} results:`,
+    "",
+    "| Name | Price | Rating | Specs | URL |",
+    "|------|-------|--------|-------|-----|",
+  ];
+
+  for (const r of results) {
+    const rating = r.rating !== null ? `${r.rating}/5` : "N/A";
+    const specs = Object.entries(r.specs)
+      .map(([k, v]) => `${k}: ${v}`)
+      .join("; ");
+    lines.push(
+      `| ${r.name} | $${r.price.toFixed(2)} | ${rating} | ${specs} | ${r.url} |`,
+    );
+  }
+
+  return lines.join("\n");
 }
 
 export function createServer(): ServerInstance {
@@ -42,7 +71,28 @@ export function createServer(): ServerInstance {
     console.log("WebSocket client connected");
 
     const agent = new Agent();
+    const browser = BrowserController.getInstance();
     let pendingQuestion: ((answer: string) => void) | null = null;
+
+    // Register search_parts tool handler — searches PCPartPicker via browser
+    agent.onTool("search_parts", async (input) => {
+      await browser.launch();
+
+      const filters: SearchFilters = {
+        priceMin: (input.price_min as number) ?? null,
+        priceMax: (input.price_max as number) ?? null,
+        brand: (input.brand as string) ?? null,
+        specs: {},
+        minRating: (input.min_rating as number) ?? null,
+      };
+
+      const results = await browser.searchCategory(
+        input.category as PartCategory,
+        filters,
+      );
+
+      return formatResultsTable(results);
+    });
 
     // Register ask_user tool handler — pauses until user responds
     agent.onTool("ask_user", (input) => {
