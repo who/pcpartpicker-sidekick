@@ -1,4 +1,12 @@
 import { chromium, Browser, BrowserContext, Page } from "playwright";
+import config from "./config.js";
+
+const PCPARTPICKER_LOGIN_URL = "https://pcpartpicker.com/user/login/";
+
+export interface LoginResult {
+  success: boolean;
+  error?: string;
+}
 
 const DEFAULT_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
@@ -121,8 +129,13 @@ export class BrowserController {
   private browser: Browser | null = null;
   private context: BrowserContext | null = null;
   private _page: Page | null = null;
+  private _isLoggedIn = false;
 
   private constructor() {}
+
+  get isLoggedIn(): boolean {
+    return this._isLoggedIn;
+  }
 
   static getInstance(): BrowserController {
     if (!BrowserController.instance) {
@@ -157,6 +170,7 @@ export class BrowserController {
       await this.browser.close();
       this.browser = null;
     }
+    this._isLoggedIn = false;
   }
 
   get page(): Page {
@@ -164,6 +178,60 @@ export class BrowserController {
       throw new Error("Browser not launched. Call launch() first.");
     }
     return this._page;
+  }
+
+  async login(): Promise<LoginResult> {
+    const pg = this.page;
+
+    try {
+      await pg.goto(PCPARTPICKER_LOGIN_URL, { waitUntil: "domcontentloaded" });
+
+      // Wait for the login form to appear
+      await pg.waitForSelector(SELECTORS.login.form, { timeout: 10_000 });
+
+      await pg.fill(SELECTORS.login.usernameInput, config.username);
+      await pg.fill(SELECTORS.login.passwordInput, config.password);
+
+      await Promise.all([
+        pg.waitForNavigation({ timeout: 15_000 }),
+        pg.click(SELECTORS.login.submitButton),
+      ]);
+
+      // Check if we're still on the login page (indicates failure)
+      const currentUrl = pg.url();
+      if (currentUrl.includes("/user/login")) {
+        // Look for error messages on the page
+        const errorText = await pg
+          .locator(".alert, .error, .form-error")
+          .first()
+          .textContent({ timeout: 2_000 })
+          .catch(() => null);
+
+        this._isLoggedIn = false;
+        return {
+          success: false,
+          error: errorText?.trim() || "Login failed: invalid credentials",
+        };
+      }
+
+      this._isLoggedIn = true;
+      return { success: true };
+    } catch (err: unknown) {
+      this._isLoggedIn = false;
+      if (err instanceof Error && err.name === "TimeoutError") {
+        return {
+          success: false,
+          error: "Login timed out waiting for page response",
+        };
+      }
+      return {
+        success: false,
+        error:
+          err instanceof Error
+            ? `Login failed: ${err.message}`
+            : "Login failed: unknown error",
+      };
+    }
   }
 
   async delay(min: number, max: number): Promise<void> {
