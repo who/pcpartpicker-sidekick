@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PCPartPicker Sidekick</title>
+  <script src="https://cdn.jsdelivr.net/npm/marked@15/marked.min.js"></script>
   <style>
     *, *::before, *::after {
       box-sizing: border-box;
@@ -191,6 +192,34 @@
       background: rgba(220, 53, 69, 0.08);
     }
 
+    .msg.assistant p {
+      margin: 0 0 8px 0;
+    }
+
+    .msg.assistant p:last-child {
+      margin-bottom: 0;
+    }
+
+    .msg.assistant strong {
+      font-weight: 600;
+    }
+
+    .msg.assistant ol,
+    .msg.assistant ul {
+      margin: 4px 0 8px 20px;
+    }
+
+    .msg.assistant li {
+      margin-bottom: 2px;
+    }
+
+    .msg.assistant code {
+      background: rgba(0, 0, 0, 0.06);
+      padding: 1px 4px;
+      border-radius: 3px;
+      font-size: 13px;
+    }
+
     .msg.assistant.proposal-bubble {
       max-width: 90%;
     }
@@ -290,7 +319,12 @@
     function addMessage(content, role) {
       const div = document.createElement('div');
       div.className = 'msg ' + role;
-      div.textContent = content;
+      if (role === 'assistant') {
+        div.dataset.md = content;
+        div.innerHTML = marked.parse(content);
+      } else {
+        div.textContent = content;
+      }
       messagesEl.appendChild(div);
       messagesEl.scrollTop = messagesEl.scrollHeight;
       return div;
@@ -485,7 +519,8 @@
           if (!currentAssistantBubble) {
             currentAssistantBubble = addMessage('', 'assistant');
           }
-          currentAssistantBubble.textContent += msg.content;
+          currentAssistantBubble.dataset.md = (currentAssistantBubble.dataset.md || '') + msg.content;
+          currentAssistantBubble.innerHTML = marked.parse(currentAssistantBubble.dataset.md);
           messagesEl.scrollTop = messagesEl.scrollHeight;
           return;
         }
