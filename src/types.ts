@@ -73,6 +73,26 @@ export interface PartSaveFailure {
   error: string;
 }
 
+// Error classification
+export enum ErrorType {
+  LOGIN_FAILED = "LOGIN_FAILED",
+  SEARCH_FAILED = "SEARCH_FAILED",
+  NETWORK_ERROR = "NETWORK_ERROR",
+  API_ERROR = "API_ERROR",
+  BROWSER_CRASH = "BROWSER_CRASH",
+}
+
+export const ERROR_MESSAGES: Record<ErrorType, string> = {
+  [ErrorType.LOGIN_FAILED]: "Could not log into PCPartPicker",
+  [ErrorType.SEARCH_FAILED]: "Could not find parts. Please try again.",
+  [ErrorType.NETWORK_ERROR]:
+    "Connection issue encountered. Please check your internet.",
+  [ErrorType.API_ERROR]:
+    "AI service temporarily unavailable. Please try again.",
+  [ErrorType.BROWSER_CRASH]:
+    "Browser encountered an issue. Attempting to recover...",
+};
+
 // WebSocket message types
 export interface WsMessageIn {
   type: "message" | "approve" | "change";

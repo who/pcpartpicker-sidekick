@@ -5,6 +5,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import { Agent } from "./agent.js";
 import { BrowserController } from "./browser.js";
 import { checkOverBudget } from "./budget.js";
+import { ErrorType, ERROR_MESSAGES } from "./types.js";
 import type {
   PartCategory,
   PartResult,
@@ -33,6 +34,57 @@ function send(ws: WebSocket, msg: WsMessageOut): void {
   if (ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(msg));
   }
+}
+
+function classifyError(err: unknown): ErrorType {
+  if (!(err instanceof Error)) return ErrorType.NETWORK_ERROR;
+
+  const msg = err.message.toLowerCase();
+
+  if (
+    msg.includes("net::err") ||
+    msg.includes("econnrefused") ||
+    msg.includes("enotfound") ||
+    msg.includes("etimedout") ||
+    msg.includes("fetch failed") ||
+    msg.includes("network")
+  ) {
+    return ErrorType.NETWORK_ERROR;
+  }
+
+  if (
+    msg.includes("browser has been closed") ||
+    msg.includes("target closed") ||
+    msg.includes("browser.newcontext") ||
+    msg.includes("browser disconnected")
+  ) {
+    return ErrorType.BROWSER_CRASH;
+  }
+
+  if (
+    msg.includes("rate limit") ||
+    msg.includes("overloaded") ||
+    msg.includes("529") ||
+    msg.includes("api key") ||
+    msg.includes("authentication") ||
+    msg.includes("401") ||
+    msg.includes("invalid x-api-key") ||
+    msg.includes("invalid api key")
+  ) {
+    return ErrorType.API_ERROR;
+  }
+
+  return ErrorType.NETWORK_ERROR;
+}
+
+function sendError(
+  ws: WebSocket,
+  errorType: ErrorType,
+  technicalDetails: string,
+): void {
+  const friendlyMessage = ERROR_MESSAGES[errorType];
+  console.error(`[${errorType}] ${technicalDetails}`);
+  send(ws, { type: "error", content: friendlyMessage });
 }
 
 function formatResultsTable(results: PartResult[]): string {
@@ -85,22 +137,59 @@ function setupSession(ws: WebSocket): Session {
 
   // Register search_parts tool handler — searches PCPartPicker via browser
   agent.onTool("search_parts", async (input) => {
-    await session.browser.launch();
+    const category = input.category as PartCategory;
 
-    const filters: SearchFilters = {
-      priceMin: (input.price_min as number) ?? null,
-      priceMax: (input.price_max as number) ?? null,
-      brand: (input.brand as string) ?? null,
-      specs: {},
-      minRating: (input.min_rating as number) ?? null,
+    const doSearch = async (): Promise<string> => {
+      await session.browser.launch();
+
+      const filters: SearchFilters = {
+        priceMin: (input.price_min as number) ?? null,
+        priceMax: (input.price_max as number) ?? null,
+        brand: (input.brand as string) ?? null,
+        specs: {},
+        minRating: (input.min_rating as number) ?? null,
+      };
+
+      const results = await session.browser.searchCategory(category, filters);
+      return formatResultsTable(results);
     };
 
-    const results = await session.browser.searchCategory(
-      input.category as PartCategory,
-      filters,
-    );
+    try {
+      return await doSearch();
+    } catch (err: unknown) {
+      const errorType = classifyError(err);
+      const detail =
+        err instanceof Error ? err.message : "Unknown search error";
 
-    return formatResultsTable(results);
+      // Attempt one browser restart on crash
+      if (errorType === ErrorType.BROWSER_CRASH) {
+        console.error(`[BROWSER_CRASH] Search failed, attempting restart: ${detail}`);
+        sendError(ws, ErrorType.BROWSER_CRASH, detail);
+        try {
+          await BrowserController.resetInstance();
+          session.browser = BrowserController.getInstance();
+          return await doSearch();
+        } catch (retryErr: unknown) {
+          const retryDetail =
+            retryErr instanceof Error
+              ? retryErr.message
+              : "Unknown error on retry";
+          sendError(ws, ErrorType.BROWSER_CRASH, `Restart failed: ${retryDetail}`);
+          throw new Error(
+            "Browser crashed and could not be restarted. Please try again later.",
+          );
+        }
+      }
+
+      if (errorType === ErrorType.NETWORK_ERROR) {
+        sendError(ws, ErrorType.NETWORK_ERROR, detail);
+      } else {
+        sendError(ws, ErrorType.SEARCH_FAILED, detail);
+      }
+      throw new Error(
+        `Could not find parts for ${category}. Please try again.`,
+      );
+    }
   });
 
   // Register ask_user tool handler — pauses until user responds
@@ -164,20 +253,76 @@ function setupSession(ws: WebSocket): Session {
       `save_list: saving ${parts.length} parts as "${listName}"`,
     );
 
-    await session.browser.launch();
+    const doSave = async (): Promise<string> => {
+      await session.browser.launch();
 
-    const result = await session.browser.saveList(parts, listName);
+      // Ensure logged in before saving
+      if (!session.browser.isLoggedIn) {
+        const loginResult = await session.browser.login();
+        if (!loginResult.success) {
+          const reason = loginResult.error ?? "invalid credentials";
+          sendError(
+            ws,
+            ErrorType.LOGIN_FAILED,
+            `Login failed during save: ${reason}`,
+          );
+          throw new Error(
+            `Could not log into PCPartPicker: ${reason}`,
+          );
+        }
+      }
 
-    console.log(
-      `save_list: saved "${result.listName}" — ${result.partsAdded} added, ${result.partsFailed.length} failed — ${result.url}`,
-    );
+      const result = await session.browser.saveList(parts, listName);
 
-    return JSON.stringify({
-      url: result.url,
-      listName: result.listName,
-      partsAdded: result.partsAdded,
-      partsFailed: result.partsFailed,
-    });
+      console.log(
+        `save_list: saved "${result.listName}" — ${result.partsAdded} added, ${result.partsFailed.length} failed — ${result.url}`,
+      );
+
+      return JSON.stringify({
+        url: result.url,
+        listName: result.listName,
+        partsAdded: result.partsAdded,
+        partsFailed: result.partsFailed,
+      });
+    };
+
+    try {
+      return await doSave();
+    } catch (err: unknown) {
+      const errorType = classifyError(err);
+      const detail =
+        err instanceof Error ? err.message : "Unknown save error";
+
+      // Already handled login failure above — re-throw as-is
+      if (errorType === ErrorType.LOGIN_FAILED || detail.includes("Could not log into")) {
+        throw err;
+      }
+
+      // Attempt one browser restart on crash
+      if (errorType === ErrorType.BROWSER_CRASH) {
+        console.error(`[BROWSER_CRASH] Save failed, attempting restart: ${detail}`);
+        sendError(ws, ErrorType.BROWSER_CRASH, detail);
+        try {
+          await BrowserController.resetInstance();
+          session.browser = BrowserController.getInstance();
+          return await doSave();
+        } catch (retryErr: unknown) {
+          const retryDetail =
+            retryErr instanceof Error
+              ? retryErr.message
+              : "Unknown error on retry";
+          sendError(ws, ErrorType.BROWSER_CRASH, `Restart failed: ${retryDetail}`);
+          throw new Error(
+            "Browser crashed and could not be restarted. Please try again later.",
+          );
+        }
+      }
+
+      if (errorType === ErrorType.NETWORK_ERROR) {
+        sendError(ws, ErrorType.NETWORK_ERROR, detail);
+      }
+      throw err;
+    }
   });
 
   ws.on("message", (data) => {
@@ -220,9 +365,11 @@ function setupSession(ws: WebSocket): Session {
           send(ws, { type: "response", content: "", done: true });
         })
         .catch((err: unknown) => {
-          const message =
+          const detail =
             err instanceof Error ? err.message : "Agent error";
-          send(ws, { type: "error", content: message });
+          sendError(ws, classifyError(err), detail);
+          // Send done signal so the UI re-enables input
+          send(ws, { type: "response", content: "", done: true });
         });
       return;
     }

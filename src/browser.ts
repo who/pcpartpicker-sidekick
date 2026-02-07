@@ -176,9 +176,21 @@ export class BrowserController {
     }
   }
 
+  isConnected(): boolean {
+    return this.browser !== null && this.browser.isConnected();
+  }
+
   async launch(): Promise<void> {
     if (this.browser?.isConnected()) {
       return;
+    }
+
+    // Clean up stale state if browser died
+    if (this.browser && !this.browser.isConnected()) {
+      this.browser = null;
+      this.context = null;
+      this._page = null;
+      this._isLoggedIn = false;
     }
 
     this.browser = await chromium.launch({ headless: true });
