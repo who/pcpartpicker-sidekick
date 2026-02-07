@@ -4,6 +4,7 @@ import express from "express";
 import { WebSocketServer, WebSocket } from "ws";
 import { Agent } from "./agent.js";
 import { BrowserController } from "./browser.js";
+import { checkOverBudget } from "./budget.js";
 import type {
   PartCategory,
   PartResult,
@@ -119,11 +120,28 @@ export function createServer(): ServerInstance {
       const parts = input.parts as WsProposalPart[];
       const total = input.total as number;
       const budget = input.budget as number;
+      const budgetCheck = checkOverBudget(budget, total);
 
-      send(ws, { type: "proposal", parts, total, budget });
+      send(ws, {
+        type: "proposal",
+        parts,
+        total,
+        budget,
+        overBudget: budgetCheck.overBudget,
+        overBudgetAmount: budgetCheck.amount,
+        overBudgetPercentage: budgetCheck.percentage,
+      });
+
+      const PROPOSE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 
       return new Promise<string>((resolve) => {
+        const timer = setTimeout(() => {
+          pendingQuestion = null;
+          resolve("User did not respond to the build proposal in time.");
+        }, PROPOSE_TIMEOUT_MS);
+
         pendingQuestion = (answer: string) => {
+          clearTimeout(timer);
           resolve(answer);
         };
       });

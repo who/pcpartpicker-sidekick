@@ -103,6 +103,9 @@ export interface WsProposalMessage {
   parts: WsProposalPart[];
   total: number;
   budget: number;
+  overBudget: boolean;
+  overBudgetAmount: number;
+  overBudgetPercentage: number;
 }
 
 export interface WsErrorMessage {
