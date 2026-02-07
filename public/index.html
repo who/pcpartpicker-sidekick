@@ -122,6 +122,78 @@
     #input-area button:hover {
       background: #0056b3;
     }
+
+    .proposal-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+      margin: 8px 0;
+    }
+
+    .proposal-table th,
+    .proposal-table td {
+      padding: 8px 10px;
+      text-align: left;
+      border-bottom: 1px solid #ccc;
+    }
+
+    .proposal-table th {
+      font-weight: 600;
+      background: #dde1e5;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+
+    .proposal-table td:last-child {
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    .proposal-table th:last-child {
+      text-align: right;
+    }
+
+    .proposal-table a {
+      color: #007bff;
+      text-decoration: none;
+    }
+
+    .proposal-table a:hover {
+      text-decoration: underline;
+    }
+
+    .proposal-table details {
+      margin-top: 4px;
+      font-size: 13px;
+      color: #555;
+    }
+
+    .proposal-table details summary {
+      cursor: pointer;
+      color: #007bff;
+      font-size: 12px;
+    }
+
+    .proposal-total {
+      font-weight: 600;
+      font-size: 15px;
+      padding: 10px;
+      border-top: 2px solid #999;
+    }
+
+    .under-budget {
+      color: #28a745;
+    }
+
+    .over-budget {
+      color: #dc3545;
+      background: rgba(220, 53, 69, 0.08);
+    }
+
+    .msg.assistant.proposal-bubble {
+      max-width: 90%;
+    }
   </style>
 </head>
 <body>
@@ -149,6 +221,86 @@
       messagesEl.appendChild(div);
       messagesEl.scrollTop = messagesEl.scrollHeight;
       return div;
+    }
+
+    function renderProposal(msg) {
+      var bubble = document.createElement('div');
+      bubble.className = 'msg assistant proposal-bubble';
+
+      var table = document.createElement('table');
+      table.className = 'proposal-table';
+
+      var thead = document.createElement('thead');
+      var headerRow = document.createElement('tr');
+      ['Category', 'Part Name', 'Price'].forEach(function(text) {
+        var th = document.createElement('th');
+        th.textContent = text;
+        headerRow.appendChild(th);
+      });
+      thead.appendChild(headerRow);
+      table.appendChild(thead);
+
+      var tbody = document.createElement('tbody');
+      msg.parts.forEach(function(part) {
+        var tr = document.createElement('tr');
+
+        var tdCat = document.createElement('td');
+        tdCat.textContent = part.category;
+        tr.appendChild(tdCat);
+
+        var tdName = document.createElement('td');
+        if (part.url) {
+          var link = document.createElement('a');
+          link.href = part.url;
+          link.target = '_blank';
+          link.rel = 'noopener noreferrer';
+          link.textContent = part.name;
+          tdName.appendChild(link);
+        } else {
+          tdName.textContent = part.name;
+        }
+        if (part.reasoning) {
+          var details = document.createElement('details');
+          var summary = document.createElement('summary');
+          summary.textContent = 'Why?';
+          details.appendChild(summary);
+          var p = document.createElement('p');
+          p.textContent = part.reasoning;
+          details.appendChild(p);
+          tdName.appendChild(details);
+        }
+        tr.appendChild(tdName);
+
+        var tdPrice = document.createElement('td');
+        tdPrice.textContent = '$' + part.price.toFixed(2);
+        tr.appendChild(tdPrice);
+
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+
+      var tfoot = document.createElement('tfoot');
+      var totalRow = document.createElement('tr');
+      var budgetClass = msg.overBudget ? 'over-budget' : 'under-budget';
+      totalRow.className = budgetClass;
+
+      var tdLabel = document.createElement('td');
+      tdLabel.setAttribute('colspan', '2');
+      tdLabel.className = 'proposal-total';
+      tdLabel.textContent = 'Total: $' + msg.total.toFixed(2) + ' / $' + msg.budget.toFixed(2) + ' budget';
+      totalRow.appendChild(tdLabel);
+
+      var tdTotal = document.createElement('td');
+      tdTotal.className = 'proposal-total';
+      tdTotal.textContent = '$' + msg.total.toFixed(2);
+      totalRow.appendChild(tdTotal);
+
+      tfoot.appendChild(totalRow);
+      table.appendChild(tfoot);
+
+      bubble.appendChild(table);
+      messagesEl.appendChild(bubble);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
     }
 
     function setInputEnabled(enabled) {
@@ -204,6 +356,12 @@
           }
           currentAssistantBubble.textContent += msg.content;
           messagesEl.scrollTop = messagesEl.scrollHeight;
+          return;
+        }
+
+        if (msg.type === 'proposal') {
+          renderProposal(msg);
+          setInputEnabled(true);
           return;
         }
 
