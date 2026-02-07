@@ -99,8 +99,18 @@ export function createServer(): ServerInstance {
       const question = input.question as string;
       send(ws, { type: "question", content: question });
 
+      const ASK_USER_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+
       return new Promise<string>((resolve) => {
-        pendingQuestion = resolve;
+        const timer = setTimeout(() => {
+          pendingQuestion = null;
+          resolve("User did not respond in time.");
+        }, ASK_USER_TIMEOUT_MS);
+
+        pendingQuestion = (answer: string) => {
+          clearTimeout(timer);
+          resolve(answer);
+        };
       });
     });
 
@@ -169,7 +179,11 @@ export function createServer(): ServerInstance {
 
     ws.on("close", () => {
       console.log("WebSocket client disconnected");
-      pendingQuestion = null;
+      if (pendingQuestion) {
+        const resolve = pendingQuestion;
+        pendingQuestion = null;
+        resolve("User disconnected.");
+      }
     });
 
     ws.on("error", (err) => {
