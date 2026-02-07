@@ -60,3 +60,46 @@ export interface BudgetAllocation {
   min: number;
   max: number;
 }
+
+// WebSocket message types
+export interface WsMessageIn {
+  type: "message" | "approve" | "change";
+  content: string;
+}
+
+export interface WsTextResponse {
+  type: "response";
+  content: string;
+  done: boolean;
+}
+
+export interface WsQuestionMessage {
+  type: "question";
+  content: string;
+}
+
+export interface WsProposalPart {
+  category: string;
+  name: string;
+  price: number;
+  reasoning: string;
+  url?: string;
+}
+
+export interface WsProposalMessage {
+  type: "proposal";
+  parts: WsProposalPart[];
+  total: number;
+  budget: number;
+}
+
+export interface WsErrorMessage {
+  type: "error";
+  content: string;
+}
+
+export type WsMessageOut =
+  | WsTextResponse
+  | WsQuestionMessage
+  | WsProposalMessage
+  | WsErrorMessage;
