@@ -169,6 +169,13 @@ export class BrowserController {
     return BrowserController.instance;
   }
 
+  static async resetInstance(): Promise<void> {
+    if (BrowserController.instance) {
+      await BrowserController.instance.close();
+      BrowserController.instance = null;
+    }
+  }
+
   async launch(): Promise<void> {
     if (this.browser?.isConnected()) {
       return;
