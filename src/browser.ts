@@ -1,5 +1,11 @@
 import { chromium, Browser, BrowserContext, Page } from "playwright";
-import { PartCategory, PartResult, SearchFilters } from "./types.js";
+import {
+  PartCategory,
+  PartResult,
+  PartSaveFailure,
+  SaveListResult,
+  SearchFilters,
+} from "./types.js";
 import config from "./config.js";
 
 const PCPARTPICKER_BASE_URL = "https://pcpartpicker.com";
@@ -389,6 +395,91 @@ export class BrowserController {
       nextLink.click(),
     ]);
     return true;
+  }
+
+  async saveList(
+    parts: { url: string }[],
+    listName?: string,
+  ): Promise<SaveListResult> {
+    if (!this._isLoggedIn) {
+      throw new Error(
+        "Must be logged in to save a parts list. Call login() first.",
+      );
+    }
+
+    const pg = this.page;
+    const name =
+      listName ??
+      `Build ${new Date().toISOString().slice(0, 10)}`;
+    const failures: PartSaveFailure[] = [];
+    let partsAdded = 0;
+
+    // Start a new list by navigating to the list builder
+    await pg.goto(`${PCPARTPICKER_BASE_URL}/list/`, {
+      waitUntil: "domcontentloaded",
+    });
+    await this.delay(1000, 2000);
+
+    // Add each part by navigating to its page and clicking Add
+    for (const part of parts) {
+      try {
+        await pg.goto(part.url, { waitUntil: "domcontentloaded" });
+        await this.delay(1000, 2000);
+
+        const addButton = await pg.$(SELECTORS.saveList.addPartButton);
+        if (!addButton) {
+          failures.push({
+            url: part.url,
+            error: "Add to list button not found on page",
+          });
+          continue;
+        }
+
+        await addButton.click();
+        await this.delay(500, 1500);
+        partsAdded++;
+      } catch (err: unknown) {
+        failures.push({
+          url: part.url,
+          error:
+            err instanceof Error
+              ? err.message
+              : "Unknown error adding part",
+        });
+      }
+    }
+
+    // Navigate to the list page to name and save
+    await pg.goto(`${PCPARTPICKER_BASE_URL}/list/`, {
+      waitUntil: "domcontentloaded",
+    });
+    await this.delay(1000, 2000);
+
+    // Set the list name
+    const nameInput = await pg.$(SELECTORS.saveList.listNameInput);
+    if (nameInput) {
+      await nameInput.fill(name);
+      await this.delay(500, 1000);
+    }
+
+    // Save the list
+    const saveButton = await pg.$(SELECTORS.saveList.saveButton);
+    if (saveButton) {
+      await Promise.all([
+        pg.waitForNavigation({ timeout: 15_000 }).catch(() => null),
+        saveButton.click(),
+      ]);
+      await this.delay(1000, 2000);
+    }
+
+    const savedUrl = pg.url();
+
+    return {
+      url: savedUrl,
+      listName: name,
+      partsAdded,
+      partsFailed: failures,
+    };
   }
 
   async delay(min: number, max: number): Promise<void> {

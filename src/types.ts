@@ -61,6 +61,18 @@ export interface BudgetAllocation {
   max: number;
 }
 
+export interface SaveListResult {
+  url: string;
+  listName: string;
+  partsAdded: number;
+  partsFailed: PartSaveFailure[];
+}
+
+export interface PartSaveFailure {
+  url: string;
+  error: string;
+}
+
 // WebSocket message types
 export interface WsMessageIn {
   type: "message" | "approve" | "change";
